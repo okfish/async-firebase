@@ -361,11 +361,15 @@ class FCMResponse:
         """
         self.message_id = fcm_response.get("name") if fcm_response else None
         self.exception = exception
+        self.fcm_response = fcm_response
 
     @property
     def success(self) -> bool:
         """A boolean indicating if the request was successful."""
         return self.message_id is not None and not self.exception
+
+    def __repr__(self):
+        return f"<FCMResponse message_id='{self.message_id}' Exception='{self.exception}'>"
 
 
 class FCMBatchResponse:
