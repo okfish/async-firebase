@@ -72,6 +72,18 @@ class AsyncClientBase:
         self._request_timeout = request_timeout
         self._request_limits = request_limits
 
+        # suddenly, httpx.AsyncClient init process is blocking due to a lot of file IO (ssl certs etc)
+        # it causes asyncio warnings such as
+        #  "base_events Executing <Handle <TaskWakeupMethWrapper object
+        #  at 0x7f53d7e27790>(<Future finis...events.py:418>) created at /usr/lib/python3.8/asyncio/futures.py:332>
+        #  took 0.104 seconds" in cases of thousands of coroutines running concurrently
+        # so it better to have one httpx client instance here
+        self._httpx_client = httpx.AsyncClient(
+            base_url=self.BASE_URL,
+            timeout=httpx.Timeout(**self._request_timeout.__dict__),
+            limits=httpx.Limits(**self._request_limits.__dict__),
+        )
+
     def creds_from_service_account_info(self, service_account_info: t.Dict[str, str]) -> None:
         """
         Creates a Credentials instance from parsed service account info.
@@ -109,9 +121,9 @@ class AsyncClientBase:
             }
         ).encode("utf-8")
 
-        async with httpx.AsyncClient() as client:
-            response: httpx.Response = await client.post(self.TOKEN_URL, data=data, headers=headers)
-            response_data = response.json()
+        # drop context manager as it initializes httpx.AsyncClient on each request and blocks the event loop
+        response: httpx.Response = await self._httpx_client.post(self.TOKEN_URL, data=data, headers=headers)
+        response_data = response.json()
 
         self._credentials.expiry = datetime.utcnow() + timedelta(seconds=response_data["expires_in"])
         self._credentials.token = response_data["access_token"]
@@ -180,34 +192,48 @@ class AsyncClientBase:
         :param content: request content
         :return: HTTP response
         """
-        async with httpx.AsyncClient(
-            base_url=self.BASE_URL,
-            timeout=httpx.Timeout(**self._request_timeout.__dict__),
-            limits=httpx.Limits(**self._request_limits.__dict__),
-        ) as client:
-            logging.debug(
-                "Requesting POST %s, payload: %s, content: %s, headers: %s",
-                urljoin(self.BASE_URL, self.FCM_ENDPOINT.format(project_id=self._credentials.project_id)),
-                json_payload,
-                content,
-                headers,
+        # drop context manager as it initializes httpx.AsyncClient on each request and blocks the event loop
+        logging.debug(
+            "Requesting POST %s, payload: %s, content: %s, headers: %s",
+            urljoin(self.BASE_URL, self.FCM_ENDPOINT.format(project_id=self._credentials.project_id)),
+            json_payload,
+            content,
+            headers,
+        )
+        try:
+            raw_fcm_response: httpx.Response = await self._httpx_client.post(
+                uri,
+                json=json_payload,
+                headers=headers or await self.prepare_headers(),
+                content=content,
             )
-            try:
-                raw_fcm_response: httpx.Response = await client.post(
-                    uri,
-                    json=json_payload,
-                    headers=headers or await self.prepare_headers(),
-                    content=content,
-                )
-                raw_fcm_response.raise_for_status()
-            except httpx.HTTPError as exc:
-                response = response_handler.handle_error(exc)
-            else:
-                logging.debug(
-                    "Response Code: %s, Time spent to make a request: %s",
-                    raw_fcm_response.status_code,
-                    raw_fcm_response.elapsed,
-                )
-                response = response_handler.handle_response(raw_fcm_response)
+            raw_fcm_response.raise_for_status()
+        except httpx.HTTPError as exc:
+            response = response_handler.handle_error(exc)
+        else:
+            logging.debug(
+                "Response Code: %s, Time spent to make a request: %s",
+                raw_fcm_response.status_code,
+                raw_fcm_response.elapsed,
+            )
+            response = response_handler.handle_response(raw_fcm_response)
 
         return response
+
+    async def aopen(self):
+        """
+        This is a mock open method that do only thing - pre-caches access token. It is recommended
+        to explicitly call this method after client init. In the case of using asyncio.gather()
+        after constructing a client, token has not been cached yet, and the client tries to get it,
+        calling _get_access_token on each request.
+        :return: None
+        """
+        await self._get_access_token()
+
+    async def aclose(self):
+        """
+        Explicitly close the httpx.AsyncClient instance.
+        :return: None
+        """
+        await self._httpx_client.aclose()
+
