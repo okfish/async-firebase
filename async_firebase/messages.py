@@ -37,6 +37,10 @@ class AndroidNotification:
     notification_count: the number of items this notification represents (optional). If zero or unspecified, systems
         that support badging use the default, which is to increment a number displayed on the long-press menu each time
         a new notification arrives.
+    sticky: When set to false or unset, the notification is automatically dismissed when the user clicks it
+        in the panel. When set to true, the notification persists even when the user clicks it.
+    ticker: Sets the "ticker" text, which is sent to accessibility services. Prior to API level 21 (Lollipop),
+        sets the text that is displayed in the status bar when the notification first arrives.
     """
 
     title: t.Optional[str] = None
@@ -52,7 +56,8 @@ class AndroidNotification:
     title_loc_args: t.List[str] = field(default_factory=list)
     channel_id: t.Optional[str] = None
     notification_count: t.Optional[int] = None
-
+    sticky: t.Optional[bool] = None
+    ticker: t.Optional[str] = None
 
 @dataclass
 class AndroidConfig:

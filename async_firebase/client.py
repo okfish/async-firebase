@@ -106,6 +106,8 @@ class AsyncFirebaseClient(AsyncClientBase):
         title_loc_args: t.Optional[t.List[str]] = None,
         channel_id: t.Optional[str] = None,
         notification_count: t.Optional[int] = None,
+        sticky: t.Optional[bool] = None,
+        ticker: t.Optional[str] = None
     ) -> AndroidConfig:
         """
         Constructs AndroidConfig that will be used to customize the messages that are sent to Android device.
@@ -141,6 +143,10 @@ class AsyncFirebaseClient(AsyncClientBase):
         :param notification_count: The number of items in notification. May be displayed as a badge count for launchers
             that support badging. If zero or unspecified, systems that support badging use the default, which is to
             increment a number displayed on the long-press menu each time a new notification arrives (optional).
+        :param sticky: When set to false or unset, the notification is automatically dismissed when the user clicks it
+            in the panel. When set to true, the notification persists even when the user clicks it.
+        :param ticker: Sets the "ticker" text, which is sent to accessibility services. Prior to API level 21 (Lollipop),
+            sets the text that is displayed in the status bar when the notification first arrives.
         :return: an instance of ``messages.AndroidConfig`` to be included in the resulting payload.
         """
         android_config = AndroidConfig(
@@ -163,6 +169,8 @@ class AsyncFirebaseClient(AsyncClientBase):
                 title_loc_args=title_loc_args or [],
                 channel_id=channel_id,
                 notification_count=notification_count,
+                sticky=sticky,
+                ticker=ticker,
             ),
         )
 
